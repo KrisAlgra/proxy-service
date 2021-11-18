@@ -1,15 +1,49 @@
+const { Socket } = require("dgram");
 const http = require("http");
+const { url } = require("inspector");
 const { URL } = require("url");
 
-let previousReq;
+let previousReq; //`${clientReq.socket.remoteAddress}-${clientReq.url}-${clientReq.method}`
 
 // Create an HTTP proxy
 const proxy = http.createServer((clientReq, clientRes) => {
-  previousReq && (previousReq = clientReq);
-
   let chunks = [];
-  // previousReq ? setnew : forward request without delay (possible race condition Assume only serial requests look in handling concurency issues)
-  // if consecutive requests wait 2 seconds. use setTimeout. Design decision, do I wait to make proxy request or make proxy request then wait to respond back to client.
+  let isConsecutive = false;
+  if (
+    previousReq ===
+    `${clientReq.socket.remoteAddress}-${clientReq.url}-${clientReq.method}`
+  ) {
+    //delay response
+    isConsecutive = true;
+  }
+  previousReq = `${clientReq.socket.remoteAddress}-${clientReq.url}-${clientReq.method}`;
+
+  //   const isConsecutive = () => {
+  //     if (previousReq) {
+  //       const {
+  //         method: prevMethod,
+  //         url: prevUrl,
+  //         socket: prevSocket,
+  //       } = previousReq;
+  //       const { method: curMethod, url: curUrl, socket: curSocket } = clientReq;
+  //       console.log(
+  //         "requests match: ",
+  //         curMethod === prevMethod &&
+  //           curUrl === prevUrl &&
+  //           curSocket.remoteAddress === prevSocket.remoteAddress
+  //       );
+  //       if (
+  //         curMethod === prevMethod &&
+  //         curUrl === prevUrl &&
+  //         curSocket.remoteAddress === prevSocket.remoteAddress
+  //       ) {
+  //         // previousReq = clientReq;
+  //         return true;
+  //       }
+  //     }
+  //     // previousReq = clientReq;
+  //     return false;
+  //   };
 
   clientReq.on("data", (chunk) => chunks.push(chunk));
   clientReq.on("end", () => {
@@ -17,7 +51,7 @@ const proxy = http.createServer((clientReq, clientRes) => {
     const { hostname: host, port, pathname: path } = new URL(url);
     const clientReqBody = Buffer.concat(chunks).toString("utf-8");
 
-    // look for bad_message if present reject 401
+    // Check for bad_message if present reject 401
     if (clientReqBody.includes("bad_message")) {
       clientRes.writeHead("401", headers);
       clientRes.end();
@@ -27,9 +61,17 @@ const proxy = http.createServer((clientReq, clientRes) => {
       { host, port: port || 80, path, headers, method },
       (proxyRes) => {
         const { statusMessage, statusCode, headers } = proxyRes;
-        clientRes.writeHead(statusCode, statusMessage, headers);
-        proxyRes.on("data", (chunk) => clientRes.write(chunk));
-        proxyRes.on("end", () => clientRes.end());
+        if (isConsecutive) {
+          setTimeout(() => {
+            clientRes.writeHead(statusCode, statusMessage, headers);
+            proxyRes.on("data", (chunk) => clientRes.write(chunk));
+            proxyRes.on("end", () => clientRes.end());
+          }, 5000);
+        } else {
+          clientRes.writeHead(statusCode, statusMessage, headers);
+          proxyRes.on("data", (chunk) => clientRes.write(chunk));
+          proxyRes.on("end", () => clientRes.end());
+        }
       }
     );
     proxyReq.end(clientReqBody);
