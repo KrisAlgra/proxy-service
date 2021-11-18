@@ -1,7 +1,6 @@
-const { Socket } = require("dgram");
 const http = require("http");
-const { url } = require("inspector");
 const { URL } = require("url");
+const { MD5 } = require("crypto-js");
 
 let previousReq;
 
@@ -9,20 +8,25 @@ let previousReq;
 const proxy = http.createServer((clientReq, clientRes) => {
   let chunks = [];
   let isConsecutive = false;
-  if (
-    previousReq ===
-    `${clientReq.socket.remoteAddress}-${clientReq.url}-${clientReq.method}`
-  ) {
-    //delay response
-    isConsecutive = true;
-  }
-  previousReq = `${clientReq.socket.remoteAddress}-${clientReq.url}-${clientReq.method}`;
 
   clientReq.on("data", (chunk) => chunks.push(chunk));
   clientReq.on("end", () => {
     const { url, headers, method } = clientReq;
     const { hostname: host, port, pathname: path } = new URL(url);
     const clientReqBody = Buffer.concat(chunks).toString("utf-8");
+
+    if (
+      previousReq ===
+      `${clientReq.socket.remoteAddress}-${clientReq.url}-${
+        clientReq.method
+      }-${MD5(clientReqBody)}`
+    ) {
+      //delay response
+      isConsecutive = true;
+    }
+    previousReq = `${clientReq.socket.remoteAddress}-${clientReq.url}-${
+      clientReq.method
+    }-${MD5(clientReqBody)}`;
 
     // Check for bad_message if present reject 401
     if (clientReqBody.includes("bad_message")) {
@@ -41,7 +45,7 @@ const proxy = http.createServer((clientReq, clientRes) => {
             proxyRes.on("data", (chunk) => clientRes.write(chunk));
             proxyRes.on("end", () => clientRes.end());
           },
-          isConsecutive ? 5000 : 0
+          isConsecutive ? 2000 : 0
         );
       }
     );
