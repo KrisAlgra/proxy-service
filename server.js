@@ -1,6 +1,7 @@
 const http = require("http");
 const { URL } = require("url");
 const { MD5 } = require("crypto-js");
+const { v4: uuid } = require("uuid");
 
 let previousReq;
 
@@ -41,7 +42,11 @@ const proxy = http.createServer((clientReq, clientRes) => {
         const { statusMessage, statusCode, headers } = proxyRes;
         setTimeout(
           () => {
-            clientRes.writeHead(statusCode, statusMessage, headers);
+            // clientRes.writeHead(statusCode, statusMessage, headers);
+            clientRes.writeHead(statusCode, statusMessage, {
+              "X-Proxy-Request-ID": uuid(),
+              ...headers,
+            });
             proxyRes.on("data", (chunk) => clientRes.write(chunk));
             proxyRes.on("end", () => clientRes.end());
           },
