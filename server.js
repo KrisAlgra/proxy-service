@@ -5,7 +5,7 @@ const { v4: uuid } = require("uuid");
 
 let previousReq;
 
-// Create an HTTP proxy
+// Create proxy
 const proxy = http.createServer((clientReq, clientRes) => {
   let chunks = [];
   let isConsecutive = false;
@@ -22,7 +22,7 @@ const proxy = http.createServer((clientReq, clientRes) => {
         clientReq.method
       }-${MD5(clientReqBody)}`
     ) {
-      //delay response
+      // Delay response
       isConsecutive = true;
     }
     previousReq = `${clientReq.socket.remoteAddress}-${clientReq.url}-${
@@ -31,26 +31,45 @@ const proxy = http.createServer((clientReq, clientRes) => {
 
     // Check for bad_message if present reject 401
     if (clientReqBody.includes("bad_message")) {
+      isConsecutive = false;
       clientRes.writeHead("401", headers);
       clientRes.end();
-      return;
     }
 
     const proxyReq = http.request(
       { host, port: port || 80, path, headers, method },
       (proxyRes) => {
         const { statusMessage, statusCode, headers } = proxyRes;
+        const reqId = uuid();
         setTimeout(
           () => {
-            // clientRes.writeHead(statusCode, statusMessage, headers);
             clientRes.writeHead(statusCode, statusMessage, {
-              "X-Proxy-Request-ID": uuid(),
+              "X-Proxy-Request-ID": reqId,
               ...headers,
             });
             proxyRes.on("data", (chunk) => clientRes.write(chunk));
             proxyRes.on("end", () => clientRes.end());
           },
           isConsecutive ? 2000 : 0
+        );
+
+        // Logging
+        console.log(
+          { PROXY_REQUEST_ID: reqId },
+          {
+            REQUEST: {
+              TIME_RECEIVED: new Date(),
+              SOURCE_IP: clientReq.socket.remoteAddress,
+              METHOD: clientReq.method,
+              URL: clientReq.url,
+            },
+            RESPONSE: {
+              TIME_SENT: new Date(),
+              STATUS_CODE: clientRes.statusCode,
+              STATUS_MESSAGE: clientRes.statusMessage,
+              CONSECUTIVE_DELAY: isConsecutive,
+            },
+          }
         );
       }
     );
